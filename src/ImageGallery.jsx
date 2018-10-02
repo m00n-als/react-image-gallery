@@ -1114,7 +1114,7 @@ export default class ImageGallery extends React.Component {
                     </span>
                 }
                 {
-                  !this.props.disableSwipe && this._showThumbnailsNav() ?
+                  !this.props.disableSwipe && this.props.showThumbnailsNav && this._showThumbnailsNav() ?
                     <Swipeable
                       className='image-gallery-thumbnails-swipe'
                       delta={1}
