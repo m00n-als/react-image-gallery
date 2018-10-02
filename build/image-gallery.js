@@ -1047,7 +1047,7 @@ var ImageGallery = function (_React$Component) {
               this.props.renderThumbnailsLeftNav(slideThumbnailsLeft, !this._canSlideThumbnailsLeft(), this._isThumbnailHorizontal()),
               this.props.renderThumbnailsRightNav(slideThumbnailsRight, !this._canSlideThumbnailsRight(), this._isThumbnailHorizontal())
             ),
-            !this.props.disableSwipe && this._showThumbnailsNav() ? _react2.default.createElement(
+            !this.props.disableSwipe && this.props.showThumbnailsNav && this._showThumbnailsNav() ? _react2.default.createElement(
               _reactSwipeable2.default,
               {
                 className: 'image-gallery-thumbnails-swipe',
