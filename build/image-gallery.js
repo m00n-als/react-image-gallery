@@ -359,7 +359,7 @@ var ImageGallery = function (_React$Component) {
         }
 
         // adjust thumbnail container when thumbnail width or height is adjusted
-        _this5._setThumbsTranslate(-_this5._getThumbsTranslate(_this5.state.currentIndex > 0 ? 1 : 0) * _this5.state.currentIndex);
+        _this5._setThumbsTranslate(0);
 
         if (_this5._imageGallerySlideWrapper) {
           _this5.setState({
@@ -368,11 +368,10 @@ var ImageGallery = function (_React$Component) {
         }
 
         if (_this5._thumbnailsWrapper) {
-          if (_this5._isThumbnailHorizontal()) {
-            _this5.setState({ thumbnailsWrapperHeight: _this5._thumbnailsWrapper.offsetHeight });
-          } else {
-            _this5.setState({ thumbnailsWrapperWidth: _this5._thumbnailsWrapper.offsetWidth });
-          }
+          _this5.setState({
+            thumbnailsWrapperWidth: _this5._thumbnailsWrapper.offsetWidth,
+            thumbnailsWrapperHeight: _this5._thumbnailsWrapper.offsetHeight
+          });
         }
       }, 500);
     }
@@ -514,19 +513,60 @@ var ImageGallery = function (_React$Component) {
   }, {
     key: '_updateThumbnailTranslate',
     value: function _updateThumbnailTranslate(prevState) {
-      if (this.state.currentThumbnailIndex === 0) {
+      var _state = this.state,
+          currentThumbnailIndex = _state.currentThumbnailIndex,
+          thumbsTranslate = _state.thumbsTranslate;
+
+      if (currentThumbnailIndex === 0) {
         this._setThumbsTranslate(0);
       } else {
-        var indexDifference = Math.abs(prevState.currentThumbnailIndex - this.state.currentThumbnailIndex);
+        var columns = this._getThumbsColumns();
+        var scrollLimit = this._getThumbsTranslateLimit();
+        var indexDifference = prevState.currentThumbnailIndex < currentThumbnailIndex ? Math.floor(currentThumbnailIndex / columns) - Math.floor(prevState.currentThumbnailIndex / columns) : Math.ceil(prevState.currentThumbnailIndex / columns) - Math.ceil(currentThumbnailIndex / columns);
         var scroll = this._getThumbsTranslate(indexDifference);
         if (scroll > 0) {
-          if (prevState.currentThumbnailIndex < this.state.currentThumbnailIndex) {
-            this._setThumbsTranslate(this.state.thumbsTranslate - scroll);
-          } else if (prevState.currentThumbnailIndex > this.state.currentThumbnailIndex) {
-            this._setThumbsTranslate(this.state.thumbsTranslate + scroll);
+          if (prevState.currentThumbnailIndex < currentThumbnailIndex) {
+            this._setThumbsTranslate(Math.abs(thumbsTranslate - scroll) >= scrollLimit ? -scrollLimit : thumbsTranslate - scroll);
+          } else if (prevState.currentThumbnailIndex > currentThumbnailIndex) {
+            this._setThumbsTranslate(Math.abs(thumbsTranslate + scroll) >= scrollLimit ? 0 : Math.min(thumbsTranslate + scroll, 0));
           }
         }
       }
+    }
+  }, {
+    key: '_getThumbsColumns',
+    value: function _getThumbsColumns() {
+      var _state2 = this.state,
+          thumbnailsWrapperWidth = _state2.thumbnailsWrapperWidth,
+          thumbnailsWrapperHeight = _state2.thumbnailsWrapperHeight;
+
+      if (this._thumbnails && this._thumbnails.children && this._thumbnails.children.length) {
+        var _thumbnails$children$ = this._thumbnails.children[0].getBoundingClientRect(),
+            width = _thumbnails$children$.width,
+            height = _thumbnails$children$.height;
+
+        if (this._isThumbnailHorizontal()) {
+          return Math.floor(thumbnailsWrapperWidth / width) || 1;
+        } else {
+          return Math.floor(thumbnailsWrapperHeight / height) || 1;
+        }
+      }
+
+      return 1;
+    }
+  }, {
+    key: '_getThumbsTranslateLimit',
+    value: function _getThumbsTranslateLimit() {
+      var _state3 = this.state,
+          thumbnailsWrapperWidth = _state3.thumbnailsWrapperWidth,
+          thumbnailsWrapperHeight = _state3.thumbnailsWrapperHeight;
+
+
+      if (this._isThumbnailHorizontal()) {
+        return this._thumbnails.scrollHeight - thumbnailsWrapperHeight;
+      }
+
+      return this._thumbnails.scrollWidth - thumbnailsWrapperWidth;
     }
   }, {
     key: '_setThumbsTranslate',
@@ -540,30 +580,45 @@ var ImageGallery = function (_React$Component) {
         return 0;
       }
 
-      var _state = this.state,
-          thumbnailsWrapperWidth = _state.thumbnailsWrapperWidth,
-          thumbnailsWrapperHeight = _state.thumbnailsWrapperHeight;
+      var _state4 = this.state,
+          thumbnailsWrapperWidth = _state4.thumbnailsWrapperWidth,
+          thumbnailsWrapperHeight = _state4.thumbnailsWrapperHeight;
 
-      var totalScroll = void 0;
+      var perIndexScroll = 0;
 
       if (this._thumbnails) {
-
         // total scroll required to see the last thumbnail
         if (this._isThumbnailHorizontal()) {
           if (this._thumbnails.scrollHeight <= thumbnailsWrapperHeight) {
             return 0;
           }
-          totalScroll = this._thumbnails.scrollHeight - thumbnailsWrapperHeight;
+          if (this._thumbnails.children && this._thumbnails.children.length) {
+            var _thumbnails$children$2 = this._thumbnails.children[0].getBoundingClientRect(),
+                height = _thumbnails$children$2.height;
+
+            var style = window.getComputedStyle(this._thumbnails.children[0]);
+            perIndexScroll = ['top', 'bottom'].map(function (side) {
+              return parseInt(style['margin-' + side], 10);
+            }).reduce(function (total, side) {
+              return total + side;
+            }, height);
+          }
         } else {
           if (this._thumbnails.scrollWidth <= thumbnailsWrapperWidth) {
             return 0;
           }
-          totalScroll = this._thumbnails.scrollWidth - thumbnailsWrapperWidth;
-        }
+          if (this._thumbnails.children && this._thumbnails.children.length) {
+            var _thumbnails$children$3 = this._thumbnails.children[0].getBoundingClientRect(),
+                width = _thumbnails$children$3.width;
 
-        var totalThumbnails = this._thumbnails.children.length;
-        // scroll-x required per index change
-        var perIndexScroll = totalScroll / (totalThumbnails - 1);
+            var _style = window.getComputedStyle(this._thumbnails.children[0]);
+            perIndexScroll = ['left', 'right'].map(function (side) {
+              return parseInt(_style['margin-' + side], 10);
+            }).reduce(function (total, side) {
+              return total + side;
+            }, width);
+          }
+        }
 
         return indexDifference * perIndexScroll;
       }
@@ -625,10 +680,10 @@ var ImageGallery = function (_React$Component) {
     key: '_getTranslateXForTwoSlide',
     value: function _getTranslateXForTwoSlide(index) {
       // For taking care of infinite swipe when there are only two slides
-      var _state2 = this.state,
-          currentIndex = _state2.currentIndex,
-          offsetPercentage = _state2.offsetPercentage,
-          previousIndex = _state2.previousIndex;
+      var _state5 = this.state,
+          currentIndex = _state5.currentIndex,
+          offsetPercentage = _state5.offsetPercentage,
+          previousIndex = _state5.previousIndex;
 
       var baseTranslateX = -100 * currentIndex;
       var translateX = baseTranslateX + index * 100 + offsetPercentage;
@@ -678,9 +733,9 @@ var ImageGallery = function (_React$Component) {
   }, {
     key: '_getSlideStyle',
     value: function _getSlideStyle(index) {
-      var _state3 = this.state,
-          currentIndex = _state3.currentIndex,
-          offsetPercentage = _state3.offsetPercentage;
+      var _state6 = this.state,
+          currentIndex = _state6.currentIndex,
+          offsetPercentage = _state6.offsetPercentage;
       var _props2 = this.props,
           infinite = _props2.infinite,
           items = _props2.items;
@@ -806,9 +861,9 @@ var ImageGallery = function (_React$Component) {
   }, {
     key: '_showThumbnailsNav',
     value: function _showThumbnailsNav() {
-      var _state4 = this.state,
-          thumbnailsWrapperWidth = _state4.thumbnailsWrapperWidth,
-          thumbnailsWrapperHeight = _state4.thumbnailsWrapperHeight;
+      var _state7 = this.state,
+          thumbnailsWrapperWidth = _state7.thumbnailsWrapperWidth,
+          thumbnailsWrapperHeight = _state7.thumbnailsWrapperHeight;
 
 
       if (this._thumbnails) {
@@ -839,33 +894,55 @@ var ImageGallery = function (_React$Component) {
   }, {
     key: '_slideThumbnailsLeft',
     value: function _slideThumbnailsLeft() {
-      this.slideThumbnailsToIndex(this.state.currentThumbnailIndex - 1);
+      var _state8 = this.state,
+          thumbnailsWrapperWidth = _state8.thumbnailsWrapperWidth,
+          thumbnailsWrapperHeight = _state8.thumbnailsWrapperHeight,
+          thumbsTranslate = _state8.thumbsTranslate;
+
+      var scrollLimit = this._getThumbsTranslateLimit();
+
+      if (this._isThumbnailHorizontal()) {
+        this._setThumbsTranslate(thumbsTranslate >= 0 ? -scrollLimit : Math.min(thumbsTranslate + thumbnailsWrapperHeight, 0));
+      } else {
+        this._setThumbsTranslate(thumbsTranslate >= 0 ? -scrollLimit : Math.min(thumbsTranslate + thumbnailsWrapperWidth, 0));
+      }
     }
   }, {
     key: '_slideThumbnailsRight',
     value: function _slideThumbnailsRight() {
-      this.slideThumbnailsToIndex(this.state.currentThumbnailIndex + 1);
+      var _state9 = this.state,
+          thumbnailsWrapperWidth = _state9.thumbnailsWrapperWidth,
+          thumbnailsWrapperHeight = _state9.thumbnailsWrapperHeight,
+          thumbsTranslate = _state9.thumbsTranslate;
+
+      var scrollLimit = this._getThumbsTranslateLimit();
+
+      if (this._isThumbnailHorizontal()) {
+        this._setThumbsTranslate(thumbsTranslate <= -scrollLimit ? 0 : Math.max(thumbsTranslate - thumbnailsWrapperHeight, -scrollLimit));
+      } else {
+        this._setThumbsTranslate(thumbsTranslate <= -scrollLimit ? 0 : Math.max(thumbsTranslate - thumbnailsWrapperWidth, -scrollLimit));
+      }
     }
   }, {
     key: '_canSlideThumbnailsLeft',
     value: function _canSlideThumbnailsLeft() {
-      return this.props.infinite || this.state.currentThumbnailIndex > 0;
+      return this.props.infinite || this.state.thumbsTranslate < 0;
     }
   }, {
     key: '_canSlideThumbnailsRight',
     value: function _canSlideThumbnailsRight() {
-      return this.props.infinite || this.state.currentThumbnailIndex < this.props.items.length - 1;
+      return this.props.infinite || Math.abs(this.state.thumbsTranslate) < this._getThumbsTranslateLimit();
     }
   }, {
     key: 'render',
     value: function render() {
       var _this7 = this;
 
-      var _state5 = this.state,
-          currentIndex = _state5.currentIndex,
-          isFullscreen = _state5.isFullscreen,
-          modalFullscreen = _state5.modalFullscreen,
-          isPlaying = _state5.isPlaying;
+      var _state10 = this.state,
+          currentIndex = _state10.currentIndex,
+          isFullscreen = _state10.isFullscreen,
+          modalFullscreen = _state10.modalFullscreen,
+          isPlaying = _state10.isPlaying;
 
 
       var thumbnailStyle = this._getThumbnailStyle();
