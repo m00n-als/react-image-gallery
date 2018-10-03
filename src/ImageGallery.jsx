@@ -444,9 +444,7 @@ export default class ImageGallery extends React.Component {
       }
 
       // adjust thumbnail container when thumbnail width or height is adjusted
-      this._setThumbsTranslate(
-        -this._getThumbsTranslate(
-          this.state.currentIndex > 0 ? 1 : 0) * this.state.currentIndex);
+      this._setThumbsTranslate(0);
 
       if (this._imageGallerySlideWrapper) {
         this.setState({
@@ -455,11 +453,10 @@ export default class ImageGallery extends React.Component {
       }
 
       if (this._thumbnailsWrapper) {
-        if (this._isThumbnailHorizontal()) {
-          this.setState({thumbnailsWrapperHeight: this._thumbnailsWrapper.offsetHeight});
-        } else {
-          this.setState({thumbnailsWrapperWidth: this._thumbnailsWrapper.offsetWidth});
-        }
+        this.setState({
+          thumbnailsWrapperWidth: this._thumbnailsWrapper.offsetWidth,
+          thumbnailsWrapperHeight: this._thumbnailsWrapper.offsetHeight
+        });
       }
     }, 500);
   }
@@ -587,22 +584,51 @@ export default class ImageGallery extends React.Component {
   }
 
   _updateThumbnailTranslate(prevState) {
-    if (this.state.currentThumbnailIndex === 0) {
+    const {currentThumbnailIndex, thumbsTranslate} = this.state;
+    if (currentThumbnailIndex === 0) {
       this._setThumbsTranslate(0);
     } else {
-      let indexDifference = Math.abs(
-        prevState.currentThumbnailIndex - this.state.currentThumbnailIndex);
-      let scroll = this._getThumbsTranslate(indexDifference);
+      const columns = this._getThumbsColumns();
+      const scrollLimit = this._getThumbsTranslateLimit();
+      const indexDifference = (prevState.currentThumbnailIndex < currentThumbnailIndex)
+        ? Math.floor(currentThumbnailIndex / columns) - Math.floor(prevState.currentThumbnailIndex / columns)
+        : Math.ceil(prevState.currentThumbnailIndex / columns) - Math.ceil(currentThumbnailIndex / columns);
+      const scroll = this._getThumbsTranslate(indexDifference);
       if (scroll > 0) {
-        if (prevState.currentThumbnailIndex < this.state.currentThumbnailIndex) {
-          this._setThumbsTranslate(
-            this.state.thumbsTranslate - scroll);
-        } else if (prevState.currentThumbnailIndex > this.state.currentThumbnailIndex) {
-          this._setThumbsTranslate(
-            this.state.thumbsTranslate + scroll);
+        if (prevState.currentThumbnailIndex < currentThumbnailIndex) {
+          this._setThumbsTranslate(Math.abs(thumbsTranslate - scroll) >= scrollLimit
+            ? -scrollLimit : thumbsTranslate - scroll);
+        } else if (prevState.currentThumbnailIndex > currentThumbnailIndex) {
+          this._setThumbsTranslate(Math.abs(thumbsTranslate + scroll) >= scrollLimit
+            ? 0 : Math.min(thumbsTranslate + scroll, 0));
         }
       }
     }
+  }
+
+  _getThumbsColumns() {
+    const {thumbnailsWrapperWidth, thumbnailsWrapperHeight} = this.state;
+    if (this._thumbnails && this._thumbnails.children && this._thumbnails.children.length) {
+      const { width, height } = this._thumbnails.children[0].getBoundingClientRect();
+
+      if (this._isThumbnailHorizontal()) {
+        return Math.floor(thumbnailsWrapperWidth / width) || 1;
+      } else {
+        return Math.floor(thumbnailsWrapperHeight / height) || 1;
+      }
+    }
+
+    return 1;
+  }
+
+  _getThumbsTranslateLimit() {
+    const {thumbnailsWrapperWidth,thumbnailsWrapperHeight} = this.state;
+
+    if (this._isThumbnailHorizontal()) {
+      return this._thumbnails.scrollHeight - thumbnailsWrapperHeight;
+    }
+
+    return this._thumbnails.scrollWidth - thumbnailsWrapperWidth;
   }
 
   _setThumbsTranslate(thumbsTranslate) {
@@ -615,29 +641,35 @@ export default class ImageGallery extends React.Component {
     }
 
     const {thumbnailsWrapperWidth, thumbnailsWrapperHeight} = this.state;
-    let totalScroll;
+    let perIndexScroll = 0;
 
     if (this._thumbnails) {
-
       // total scroll required to see the last thumbnail
       if (this._isThumbnailHorizontal()) {
         if (this._thumbnails.scrollHeight <= thumbnailsWrapperHeight) {
           return 0;
         }
-        totalScroll = this._thumbnails.scrollHeight - thumbnailsWrapperHeight;
+        if (this._thumbnails.children && this._thumbnails.children.length) {
+          const { height } = this._thumbnails.children[0].getBoundingClientRect();
+          const style = window.getComputedStyle(this._thumbnails.children[0]);
+          perIndexScroll = ['top', 'bottom']
+            .map(side => (parseInt(style['margin-' + side], 10)))
+            .reduce((total, side) => (total + side), height);
+        }
       } else {
         if (this._thumbnails.scrollWidth <= thumbnailsWrapperWidth) {
           return 0;
         }
-        totalScroll = this._thumbnails.scrollWidth - thumbnailsWrapperWidth;
+        if (this._thumbnails.children && this._thumbnails.children.length) {
+          const { width } = this._thumbnails.children[0].getBoundingClientRect();
+          const style = window.getComputedStyle(this._thumbnails.children[0]);
+          perIndexScroll = ['left', 'right']
+            .map(side => (parseInt(style['margin-' + side], 10)))
+            .reduce((total, side) => (total + side), width);
+        }
       }
 
-      let totalThumbnails = this._thumbnails.children.length;
-      // scroll-x required per index change
-      let perIndexScroll = totalScroll / (totalThumbnails - 1);
-
       return indexDifference * perIndexScroll;
-
     }
   }
 
@@ -890,20 +922,45 @@ export default class ImageGallery extends React.Component {
   }
 
   _slideThumbnailsLeft() {
-    this.slideThumbnailsToIndex(this.state.currentThumbnailIndex - 1);
+    const {
+      thumbnailsWrapperWidth,
+      thumbnailsWrapperHeight,
+      thumbsTranslate,
+    } = this.state;
+    const scrollLimit = this._getThumbsTranslateLimit();
+
+    if (this._isThumbnailHorizontal()) {
+      this._setThumbsTranslate(thumbsTranslate >= 0 ? -scrollLimit
+        : Math.min(thumbsTranslate + thumbnailsWrapperHeight, 0));
+    } else {
+      this._setThumbsTranslate(thumbsTranslate >= 0 ? -scrollLimit
+        : Math.min(thumbsTranslate + thumbnailsWrapperWidth, 0));
+    }
   }
 
   _slideThumbnailsRight() {
-    this.slideThumbnailsToIndex(this.state.currentThumbnailIndex + 1);
+    const {
+      thumbnailsWrapperWidth,
+      thumbnailsWrapperHeight,
+      thumbsTranslate,
+      } = this.state;
+    const scrollLimit = this._getThumbsTranslateLimit();
+
+    if (this._isThumbnailHorizontal()) {
+      this._setThumbsTranslate(thumbsTranslate <= -scrollLimit ? 0
+        : Math.max(thumbsTranslate - thumbnailsWrapperHeight, -scrollLimit));
+    } else {
+      this._setThumbsTranslate(thumbsTranslate <= -scrollLimit ? 0
+        : Math.max(thumbsTranslate - thumbnailsWrapperWidth, -scrollLimit));
+    }
   }
 
   _canSlideThumbnailsLeft() {
-    return this.props.infinite || this.state.currentThumbnailIndex > 0;
+    return this.props.infinite || this.state.thumbsTranslate < 0;
   }
 
   _canSlideThumbnailsRight() {
-    return this.props.infinite ||
-      this.state.currentThumbnailIndex < this.props.items.length - 1;
+    return this.props.infinite || Math.abs(this.state.thumbsTranslate) < this._getThumbsTranslateLimit();
   }
 
   render() {
