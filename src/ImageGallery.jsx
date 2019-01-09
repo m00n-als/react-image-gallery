@@ -198,12 +198,15 @@ export default class ImageGallery extends React.Component {
       if (this.props.onSlide) {
         this.props.onSlide(this.state.currentIndex);
       }
-
-      this._updateThumbnailTranslate(prevState);
+      if (this.props.showThumbnails) {
+        this._updateThumbnailTranslate(prevState);
+      }
     }
 
     if (prevState.currentThumbnailIndex !== this.state.currentThumbnailIndex) {
-      this._updateThumbnailTranslate(prevState);
+      if (this.props.showThumbnails) {
+        this._updateThumbnailTranslate(prevState);
+      }
     }
 
     if (prevProps.slideDuration !== this.props.slideDuration) {
@@ -628,7 +631,7 @@ export default class ImageGallery extends React.Component {
       return this._thumbnails.scrollHeight - thumbnailsWrapperHeight;
     }
 
-    return this._thumbnails.scrollWidth - thumbnailsWrapperWidth;
+    return this._thumbnails ? this._thumbnails.scrollWidth - thumbnailsWrapperWidth : 0;
   }
 
   _setThumbsTranslate(thumbsTranslate) {
