@@ -18,6 +18,7 @@ export default class ImageGallery extends React.Component {
     super(props);
     this.state = {
       currentIndex: props.startIndex,
+      currentThumbnailIndex: props.startIndex,
       thumbsTranslate: 0,
       offsetPercentage: 0,
       galleryWidth: 0,
@@ -48,6 +49,7 @@ export default class ImageGallery extends React.Component {
     showIndex: PropTypes.bool,
     showBullets: PropTypes.bool,
     showThumbnails: PropTypes.bool,
+    showThumbnailsNav: PropTypes.bool,
     showPlayButton: PropTypes.bool,
     showFullscreenButton: PropTypes.bool,
     disableThumbnailScroll: PropTypes.bool,
@@ -82,6 +84,8 @@ export default class ImageGallery extends React.Component {
     renderRightNav: PropTypes.func,
     renderPlayPauseButton: PropTypes.func,
     renderFullscreenButton: PropTypes.func,
+    renderThumbnailLeftNav: PropTypes.func,
+    renderThumbnailRightNav: PropTypes.func,
     renderItem: PropTypes.func,
     stopPropagation: PropTypes.bool,
     additionalClass: PropTypes.string,
@@ -98,6 +102,7 @@ export default class ImageGallery extends React.Component {
     showIndex: false,
     showBullets: false,
     showThumbnails: true,
+    showThumbnailsNav: false,
     showPlayButton: true,
     showFullscreenButton: true,
     disableThumbnailScroll: false,
@@ -160,6 +165,30 @@ export default class ImageGallery extends React.Component {
         />
       );
     },
+    renderThumbnailsLeftNav: (onClick, disabled, isHorizontal) => {
+      const thumbnailsNavClass = isHorizontal ? ' horizontal' : '';
+      return (
+        <button
+          type='button'
+          className={`image-gallery-thumbnails-left-nav${thumbnailsNavClass}`}
+          disabled={disabled}
+          onClick={onClick}
+          aria-label='Previous Thumbnail'
+        />
+      );
+    },
+    renderThumbnailsRightNav: (onClick, disabled, isHorizontal) => {
+      const thumbnailsNavClass = isHorizontal ? ' horizontal' : '';
+      return (
+        <button
+          type='button'
+          className={`image-gallery-thumbnails-right-nav${thumbnailsNavClass}`}
+          disabled={disabled}
+          onClick={onClick}
+          aria-label='Next Thumbnail'
+        />
+      );
+    },
   };
 
   componentWillReceiveProps(nextProps) {
@@ -175,7 +204,18 @@ export default class ImageGallery extends React.Component {
       this._handleResize();
     }
     if (prevState.currentIndex !== this.state.currentIndex) {
-      this._updateThumbnailTranslate(prevState.currentIndex);
+      if (this.props.onSlide) {
+        this.props.onSlide(this.state.currentIndex);
+      }
+      if (this.props.showThumbnails) {
+        this._updateThumbnailTranslate(prevState.currentIndex, prevState.currentThumbnailIndex);
+      }
+    }
+
+    if (prevState.currentThumbnailIndex !== this.state.currentThumbnailIndex) {
+      if (this.props.showThumbnails) {
+        this._updateThumbnailTranslate(prevState.currentIndex, prevState.currentThumbnailIndex);
+      }
     }
 
     if (prevProps.slideDuration !== this.props.slideDuration) {
@@ -329,7 +369,9 @@ export default class ImageGallery extends React.Component {
       this.setState({
         previousIndex: currentIndex,
         currentIndex: nextIndex,
-        isTransitioning: nextIndex !== currentIndex,
+        currentThumbnailIndex: nextIndex,
+        isFlick: false, // reset isFlick state after slide
+        isTransitioning: currentIndex !== nextIndex,
         offsetPercentage: 0,
         style: {
           transition: `all ${this.props.slideDuration}ms ease-out`
@@ -425,6 +467,9 @@ export default class ImageGallery extends React.Component {
         galleryWidth: this._imageGallery.offsetWidth
       });
     }
+
+    // adjust thumbnail container when thumbnail width or height is adjusted
+    this._setThumbsTranslate(0);
 
     if (this._imageGallerySlideWrapper) {
       this.setState({
@@ -588,21 +633,52 @@ export default class ImageGallery extends React.Component {
     return this.state.currentIndex < this.props.items.length - 1;
   }
 
-  _updateThumbnailTranslate(previousIndex) {
-    const { thumbsTranslate, currentIndex } = this.state;
-    if (this.state.currentIndex === 0) {
+  _updateThumbnailTranslate(previousIndex, previousThumbnailIndex) {
+    const {currentThumbnailIndex, currentIndex, thumbsTranslate} = this.state;
+    if (currentThumbnailIndex === 0 || currentIndex === 0) {
       this._setThumbsTranslate(0);
     } else {
-      let indexDifference = Math.abs(previousIndex - currentIndex);
-      let scroll = this._getThumbsTranslate(indexDifference);
+      const columns = this._getThumbsColumns();
+      const scrollLimit = this._getThumbsTranslateLimit();
+      const indexDifference = (previousThumbnailIndex < currentThumbnailIndex)
+        ? Math.floor(currentThumbnailIndex / columns) - Math.floor(previousThumbnailIndex / columns)
+        : Math.ceil(previousThumbnailIndex / columns) - Math.ceil(currentThumbnailIndex / columns);
+      const scroll = this._getThumbsTranslate(indexDifference);
       if (scroll > 0) {
-        if (previousIndex < currentIndex) {
-          this._setThumbsTranslate(thumbsTranslate - scroll);
-        } else if (previousIndex > currentIndex) {
-          this._setThumbsTranslate(thumbsTranslate + scroll);
+        if (previousThumbnailIndex < currentThumbnailIndex) {
+          this._setThumbsTranslate(Math.abs(thumbsTranslate - scroll) >= scrollLimit
+            ? -scrollLimit : thumbsTranslate - scroll);
+        } else if (previousThumbnailIndex > currentThumbnailIndex) {
+          this._setThumbsTranslate(Math.abs(thumbsTranslate + scroll) >= scrollLimit
+            ? 0 : Math.min(thumbsTranslate + scroll, 0));
         }
       }
     }
+  }
+
+  _getThumbsColumns() {
+    const {thumbnailsWrapperWidth, thumbnailsWrapperHeight} = this.state;
+    if (this._thumbnails && this._thumbnails.children && this._thumbnails.children.length) {
+      const { width, height } = this._thumbnails.children[0].getBoundingClientRect();
+
+      if (this._isThumbnailHorizontal()) {
+        return Math.floor(thumbnailsWrapperWidth / width) || 1;
+      } else {
+        return Math.floor(thumbnailsWrapperHeight / height) || 1;
+      }
+    }
+
+    return 1;
+  }
+
+  _getThumbsTranslateLimit() {
+    const {thumbnailsWrapperWidth,thumbnailsWrapperHeight} = this.state;
+
+    if (this._isThumbnailHorizontal()) {
+      return this._thumbnails.scrollHeight - thumbnailsWrapperHeight;
+    }
+
+    return this._thumbnails ? this._thumbnails.scrollWidth - thumbnailsWrapperWidth : 0;
   }
 
   _setThumbsTranslate(thumbsTranslate) {
@@ -615,7 +691,7 @@ export default class ImageGallery extends React.Component {
     }
 
     const {thumbnailsWrapperWidth, thumbnailsWrapperHeight} = this.state;
-    let totalScroll;
+    let perIndexScroll = 0;
 
     if (this._thumbnails) {
       // total scroll required to see the last thumbnail
@@ -623,21 +699,45 @@ export default class ImageGallery extends React.Component {
         if (this._thumbnails.scrollHeight <= thumbnailsWrapperHeight) {
           return 0;
         }
-        totalScroll = this._thumbnails.scrollHeight - thumbnailsWrapperHeight;
+        if (this._thumbnails.children && this._thumbnails.children.length) {
+          const { height } = this._thumbnails.children[0].getBoundingClientRect();
+          const style = window.getComputedStyle(this._thumbnails.children[0]);
+          perIndexScroll = ['top', 'bottom']
+            .map(side => (parseInt(style['margin-' + side], 10)))
+            .reduce((total, side) => (total + side), height);
+        }
       } else {
         if (this._thumbnails.scrollWidth <= thumbnailsWrapperWidth || thumbnailsWrapperWidth <= 0) {
           return 0;
         }
-        totalScroll = this._thumbnails.scrollWidth - thumbnailsWrapperWidth;
+        if (this._thumbnails.children && this._thumbnails.children.length) {
+          const { width } = this._thumbnails.children[0].getBoundingClientRect();
+          const style = window.getComputedStyle(this._thumbnails.children[0]);
+          perIndexScroll = ['left', 'right']
+            .map(side => (parseInt(style['margin-' + side], 10)))
+            .reduce((total, side) => (total + side), width);
+        }
       }
 
-      let totalThumbnails = this._thumbnails.children.length;
-      // scroll-x required per index change
-      let perIndexScroll = totalScroll / (totalThumbnails - 1);
-
       return indexDifference * perIndexScroll;
-
     }
+  }
+
+  _handleOnSwipedThumbnailsTo(index) {
+    let slideTo = this.state.currentThumbnailIndex;
+    slideTo += index;
+
+    if (index < 0) {
+      if (!this._canSlideThumbnailsLeft()) {
+        slideTo = this.state.currentThumbnailIndex;
+      }
+    } else {
+      if (!this._canSlideThumbnailsRight()) {
+        slideTo = this.state.currentThumbnailIndex;
+      }
+    }
+
+    this._unthrottledSlideThumbnailsToIndex(slideTo);
   }
 
   _getAlignmentClassName(index) {
@@ -731,7 +831,9 @@ export default class ImageGallery extends React.Component {
   _getThumbnailBarHeight() {
     if (this._isThumbnailHorizontal()) {
       return {
-        height: this.state.gallerySlideWrapperHeight
+        height: this.props.showThumbnailsNav && this._showThumbnailsNav()
+          ? this.state.gallerySlideWrapperHeight - 50
+          : this.state.gallerySlideWrapperHeight
       };
     }
     return {};
@@ -939,6 +1041,75 @@ export default class ImageGallery extends React.Component {
     );
   };
 
+  _showThumbnailsNav() {
+    const {thumbnailsWrapperWidth, thumbnailsWrapperHeight} = this.state;
+
+    if (this._thumbnails) {
+
+      if (this._isThumbnailHorizontal()) {
+        return !!(thumbnailsWrapperHeight && this._thumbnails.scrollHeight > thumbnailsWrapperHeight);
+      }
+
+      return !!(thumbnailsWrapperWidth && this._thumbnails.scrollWidth > thumbnailsWrapperWidth);
+    }
+
+    return false;
+  }
+
+  slideThumbnailsToIndex(index) {
+    const slideCount = this.props.items.length - 1;
+    let nextIndex = index;
+
+    if (index < 0) {
+      nextIndex = slideCount;
+    } else if (index > slideCount) {
+      nextIndex = 0;
+    }
+
+    this.setState({ currentThumbnailIndex: nextIndex });
+  }
+
+  _slideThumbnailsLeft() {
+    const {
+      thumbnailsWrapperWidth,
+      thumbnailsWrapperHeight,
+      thumbsTranslate,
+    } = this.state;
+    const scrollLimit = this._getThumbsTranslateLimit();
+
+    if (this._isThumbnailHorizontal()) {
+      this._setThumbsTranslate(thumbsTranslate >= 0 ? -scrollLimit
+        : Math.min(thumbsTranslate + thumbnailsWrapperHeight, 0));
+    } else {
+      this._setThumbsTranslate(thumbsTranslate >= 0 ? -scrollLimit
+        : Math.min(thumbsTranslate + thumbnailsWrapperWidth, 0));
+    }
+  }
+
+  _slideThumbnailsRight() {
+    const {
+      thumbnailsWrapperWidth,
+      thumbnailsWrapperHeight,
+      thumbsTranslate,
+      } = this.state;
+    const scrollLimit = this._getThumbsTranslateLimit();
+
+    if (this._isThumbnailHorizontal()) {
+      this._setThumbsTranslate(thumbsTranslate <= -scrollLimit ? 0
+        : Math.max(thumbsTranslate - thumbnailsWrapperHeight, -scrollLimit));
+    } else {
+      this._setThumbsTranslate(thumbsTranslate <= -scrollLimit ? 0
+        : Math.max(thumbsTranslate - thumbnailsWrapperWidth, -scrollLimit));
+    }
+  }
+
+  _canSlideThumbnailsLeft() {
+    return this.props.infinite || this.state.thumbsTranslate < 0;
+  }
+
+  _canSlideThumbnailsRight() {
+    return this.props.infinite || Math.abs(this.state.thumbsTranslate) < this._getThumbsTranslateLimit();
+  }
   _onThumbnailClick = (event, index) => {
     this.slideToIndex(index, event);
     if (this.props.onThumbnailClick) {
@@ -963,9 +1134,12 @@ export default class ImageGallery extends React.Component {
 
     const thumbnailStyle = this._getThumbnailStyle();
     const thumbnailPosition = this.props.thumbnailPosition;
+    const thumbnailNavClass = this.props.showThumbnailsNav && this._showThumbnailsNav() ? 'navigation' : '';
 
     const slideLeft = this._slideLeft;
     const slideRight = this._slideRight;
+    const slideThumbnailsLeft = this._slideThumbnailsLeft.bind(this);
+    const slideThumbnailsRight = this._slideThumbnailsRight.bind(this);
 
     let slides = [];
     let thumbnails = [];
@@ -1162,22 +1336,62 @@ export default class ImageGallery extends React.Component {
           {
             this.props.showThumbnails &&
               <div
-                className={`image-gallery-thumbnails-wrapper ${thumbnailPosition} ${!this._isThumbnailHorizontal() && isRTL ? 'thumbnails-wrapper-rtl' : ''}`}
+                className={`image-gallery-thumbnails-wrapper ${thumbnailNavClass} ${thumbnailPosition} ${!this._isThumbnailHorizontal() && isRTL ? 'thumbnails-wrapper-rtl' : ''}`}
                 style={this._getThumbnailBarHeight()}
               >
-                <div
-                  className='image-gallery-thumbnails'
-                  ref={i => this._thumbnailsWrapper = i}
-                >
-                  <div
-                    ref={t => this._thumbnails = t}
-                    className='image-gallery-thumbnails-container'
-                    style={thumbnailStyle}
-                    aria-label='Thumbnail Navigation'
-                  >
-                    {thumbnails}
-                  </div>
-                </div>
+                {
+                  this.props.showThumbnailsNav && this._showThumbnailsNav() &&
+                    <span>
+                      {this.props.renderThumbnailsLeftNav(
+                        slideThumbnailsLeft, !this._canSlideThumbnailsLeft(), this._isThumbnailHorizontal()
+                      )}
+                      {this.props.renderThumbnailsRightNav(
+                        slideThumbnailsRight, !this._canSlideThumbnailsRight(), this._isThumbnailHorizontal()
+                      )}
+                    </span>
+                }
+                {
+                  !this.props.disableSwipe && this.props.showThumbnailsNav && this._showThumbnailsNav() ?
+                    <Swipeable
+                      className='image-gallery-thumbnails-swipe'
+                      delta={1}
+                      onSwiped={this._handleOnSwipedThumbnailsTo.bind(this)}
+                      onSwipedLeft={this._handleOnSwipedThumbnailsTo.bind(this, 1)}
+                      onSwipedRight={this._handleOnSwipedThumbnailsTo.bind(this, -1)}
+                      onSwipedDown={this._handleOnSwipedThumbnailsTo.bind(this, -1)}
+                      onSwipedUp={this._handleOnSwipedThumbnailsTo.bind(this, 1)}
+                      >
+                      <div
+                        className='image-gallery-thumbnails'
+                        ref={i => this._thumbnailsWrapper = i}
+                        >
+                        <div
+                          ref={t => this._thumbnails = t}
+                          className='image-gallery-thumbnails-container'
+                          style={thumbnailStyle}
+                          role='navigation'
+                          aria-label='Thumbnail Navigation'
+                          >
+                          {thumbnails}
+                        </div>
+                      </div>
+                    </Swipeable>
+                    :
+                    <div
+                      className='image-gallery-thumbnails'
+                      ref={i => this._thumbnailsWrapper = i}
+                      >
+                      <div
+                        ref={t => this._thumbnails = t}
+                        className='image-gallery-thumbnails-container'
+                        style={thumbnailStyle}
+                        role='navigation'
+                        aria-label='Thumbnail Navigation'
+                        >
+                        {thumbnails}
+                      </div>
+                    </div>
+                }
               </div>
           }
           {
