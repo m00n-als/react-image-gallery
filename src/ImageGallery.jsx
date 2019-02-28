@@ -25,7 +25,8 @@ export default class ImageGallery extends React.Component {
       thumbnailsWrapperWidth: 0,
       thumbnailsWrapperHeight: 0,
       isFullscreen: false,
-      isPlaying: false
+      isPlaying: false,
+      isThumbnailNavMounted: false,
     };
 
     // Used to update the throttle if slideDuration changes
@@ -222,6 +223,12 @@ export default class ImageGallery extends React.Component {
       this.slideToIndex = throttle(this._unthrottledSlideToIndex,
                                    this.props.slideDuration,
                                    {trailing: false});
+    }
+
+    const thumbnailNavSwitched = this.state.isThumbnailNavMounted !== prevState.isThumbnailNavMounted;
+
+    if (this._thumbnailsWrapper && thumbnailNavSwitched) {
+      this._updateThumbnailWrapperSize();
     }
   }
 
@@ -478,16 +485,20 @@ export default class ImageGallery extends React.Component {
     }
 
     if (this._thumbnailsWrapper) {
-      if (this._isThumbnailHorizontal()) {
-        this.setState({thumbnailsWrapperHeight: this._thumbnailsWrapper.offsetHeight});
-      } else {
-        this.setState({thumbnailsWrapperWidth: this._thumbnailsWrapper.offsetWidth});
-      }
+      this._updateThumbnailWrapperSize();
     }
 
     // Adjust thumbnail container when thumbnail width or height is adjusted
     this._setThumbsTranslate(-this._getThumbsTranslate(currentIndex));
   };
+
+  _updateThumbnailWrapperSize = () => {
+    if (this._isThumbnailHorizontal()) {
+      this.setState({thumbnailsWrapperHeight: this._thumbnailsWrapper.offsetHeight});
+    } else {
+      this.setState({thumbnailsWrapperWidth: this._thumbnailsWrapper.offsetWidth});
+    }
+  }
 
   _isThumbnailHorizontal() {
     const { thumbnailPosition } = this.props;
@@ -1117,6 +1128,12 @@ export default class ImageGallery extends React.Component {
     }
   };
 
+  _onThumbnailMounted = (element) => {
+    this.setState({
+      isThumbnailNavMounted: !!element,
+    });
+  };
+
   render() {
     const {
       currentIndex,
@@ -1341,7 +1358,7 @@ export default class ImageGallery extends React.Component {
               >
                 {
                   this.props.showThumbnailsNav && this._showThumbnailsNav() &&
-                    <span>
+                    <span ref={this._onThumbnailMounted} >
                       {this.props.renderThumbnailsLeftNav(
                         slideThumbnailsLeft, !this._canSlideThumbnailsLeft(), this._isThumbnailHorizontal()
                       )}
