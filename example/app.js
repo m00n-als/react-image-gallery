@@ -11,7 +11,6 @@ class App extends React.Component {
     super();
     this.state = {
       showIndex: false,
-      slideOnThumbnailHover: false,
       showBullets: true,
       infinite: true,
       showThumbnails: true,
@@ -21,6 +20,7 @@ class App extends React.Component {
       showGalleryPlayButton: true,
       showNav: true,
       showThumbnailsNav: false,
+      isRTL: false,
       slideDuration: 450,
       slideInterval: 2000,
       thumbnailPosition: 'bottom',
@@ -29,25 +29,33 @@ class App extends React.Component {
 
     this.images = [
       {
+        thumbnail: `${PREFIX_URL}4v.jpg`,
+        original: `${PREFIX_URL}4v.jpg`,
+        embedUrl: 'https://www.youtube.com/embed/4pSzhZ76GdM?autoplay=1&showinfo=0',
+        description: 'Render custom slides within the gallery',
+        renderItem: this._renderVideo.bind(this)
+      },
+      {
+        original: `${PREFIX_URL}image_set_default.jpg`,
+        thumbnail: `${PREFIX_URL}image_set_thumb.jpg`,
+        imageSet: [
+          {
+            srcSet: `${PREFIX_URL}image_set_cropped.jpg`,
+            media : '(max-width: 1280px)',
+          },
+          {
+            srcSet: `${PREFIX_URL}image_set_default.jpg`,
+            media : '(min-width: 1280px)',
+          }
+        ]
+      },
+      {
         original: `${PREFIX_URL}1.jpg`,
         thumbnail: `${PREFIX_URL}1t.jpg`,
         originalClass: 'featured-slide',
         thumbnailClass: 'featured-thumb',
         description: 'Custom class for slides & thumbnails'
       },
-      {
-        thumbnail: `${PREFIX_URL}3v.jpg`,
-        original: `${PREFIX_URL}3v.jpg`,
-        embedUrl: 'https://www.youtube.com/embed/iNJdPyoqt8U?autoplay=1&showinfo=0',
-        description: 'Render custom slides within the gallery',
-        renderItem: this._renderVideo.bind(this)
-      },
-      {
-        thumbnail: `${PREFIX_URL}4v.jpg`,
-        original: `${PREFIX_URL}4v.jpg`,
-        embedUrl: 'https://www.youtube.com/embed/4pSzhZ76GdM?autoplay=1&showinfo=0',
-        renderItem: this._renderVideo.bind(this)
-      }
     ].concat(this._getStaticImages());
   }
 
@@ -199,10 +207,11 @@ class App extends React.Component {
           showIndex={this.state.showIndex}
           showNav={this.state.showNav}
           showThumbnailsNav={this.state.showThumbnailsNav}
+          isRTL={this.state.isRTL}
           thumbnailPosition={this.state.thumbnailPosition}
           slideDuration={parseInt(this.state.slideDuration)}
           slideInterval={parseInt(this.state.slideInterval)}
-          slideOnThumbnailHover={this.state.slideOnThumbnailHover}
+          additionalClass="app-image-gallery"
         />
 
         <div className='app-sandbox'>
@@ -317,11 +326,11 @@ class App extends React.Component {
               </li>
               <li>
                 <input
-                  id='slide_on_thumbnail_hover'
+                  id='is_rtl'
                   type='checkbox'
-                  onChange={this._handleCheckboxChange.bind(this, 'slideOnThumbnailHover')}
-                  checked={this.state.slideOnThumbnailHover}/>
-                  <label htmlFor='slide_on_thumbnail_hover'>slide on thumbnail hover (desktop)</label>
+                  onChange={this._handleCheckboxChange.bind(this, 'isRTL')}
+                  checked={this.state.isRTL}/>
+                  <label htmlFor='is_rtl'>is right to left</label>
               </li>
             </ul>
           </div>

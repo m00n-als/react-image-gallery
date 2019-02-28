@@ -2,11 +2,12 @@ import React from 'react';
 import Swipeable from 'react-swipeable';
 import throttle from 'lodash.throttle';
 import debounce from 'lodash.debounce';
+import ResizeObserver from 'resize-observer-polyfill';
 import PropTypes from 'prop-types';
 
 const screenChangeEvents = [
   'fullscreenchange',
-  'msfullscreenchange',
+  'MSFullscreenChange',
   'mozfullscreenchange',
   'webkitfullscreenchange'
 ];
@@ -27,12 +28,19 @@ export default class ImageGallery extends React.Component {
       isPlaying: false
     };
 
+    // Used to update the throttle if slideDuration changes
+    this._unthrottledSlideToIndex = this.slideToIndex;
+    this.slideToIndex = throttle(this._unthrottledSlideToIndex,
+                                 props.slideDuration,
+                                {trailing: false});
+
     if (props.lazyLoad) {
       this._lazyLoaded = [];
     }
   }
 
   static propTypes = {
+    flickThreshold: PropTypes.number,
     items: PropTypes.array.isRequired,
     showNav: PropTypes.bool,
     autoPlay: PropTypes.bool,
@@ -44,17 +52,18 @@ export default class ImageGallery extends React.Component {
     showThumbnailsNav: PropTypes.bool,
     showPlayButton: PropTypes.bool,
     showFullscreenButton: PropTypes.bool,
-    slideOnThumbnailHover: PropTypes.bool,
     disableThumbnailScroll: PropTypes.bool,
     disableArrowKeys: PropTypes.bool,
     disableSwipe: PropTypes.bool,
     useBrowserFullscreen: PropTypes.bool,
+    preventDefaultTouchmoveEvent: PropTypes.bool,
     defaultImage: PropTypes.string,
     indexSeparator: PropTypes.string,
     thumbnailPosition: PropTypes.string,
     startIndex: PropTypes.number,
     slideDuration: PropTypes.number,
     slideInterval: PropTypes.number,
+    swipeThreshold: PropTypes.number,
     swipingTransitionDuration: PropTypes.number,
     onSlide: PropTypes.func,
     onScreenChange: PropTypes.func,
@@ -63,7 +72,13 @@ export default class ImageGallery extends React.Component {
     onClick: PropTypes.func,
     onImageLoad: PropTypes.func,
     onImageError: PropTypes.func,
+    onTouchMove: PropTypes.func,
+    onTouchEnd: PropTypes.func,
+    onTouchStart: PropTypes.func,
+    onMouseOver: PropTypes.func,
+    onMouseLeave: PropTypes.func,
     onThumbnailError: PropTypes.func,
+    onThumbnailClick: PropTypes.func,
     renderCustomControls: PropTypes.func,
     renderLeftNav: PropTypes.func,
     renderRightNav: PropTypes.func,
@@ -71,7 +86,11 @@ export default class ImageGallery extends React.Component {
     renderFullscreenButton: PropTypes.func,
     renderThumbnailLeftNav: PropTypes.func,
     renderThumbnailRightNav: PropTypes.func,
-    renderItem: PropTypes.func
+    renderItem: PropTypes.func,
+    stopPropagation: PropTypes.bool,
+    additionalClass: PropTypes.string,
+    useTranslate3D: PropTypes.bool,
+    isRTL: PropTypes.bool
   };
 
   static defaultProps = {
@@ -86,17 +105,22 @@ export default class ImageGallery extends React.Component {
     showThumbnailsNav: false,
     showPlayButton: true,
     showFullscreenButton: true,
-    slideOnThumbnailHover: false,
     disableThumbnailScroll: false,
     disableArrowKeys: false,
     disableSwipe: false,
+    useTranslate3D: true,
+    isRTL: false,
     useBrowserFullscreen: true,
+    preventDefaultTouchmoveEvent: false,
+    flickThreshold: 0.4,
+    stopPropagation: false,
     indexSeparator: ' / ',
     thumbnailPosition: 'bottom',
     startIndex: 0,
     slideDuration: 450,
     swipingTransitionDuration: 0,
     slideInterval: 3000,
+    swipeThreshold: 30,
     renderLeftNav: (onClick, disabled) => {
       return (
         <button
@@ -168,44 +192,29 @@ export default class ImageGallery extends React.Component {
   };
 
   componentWillReceiveProps(nextProps) {
-    if (this.props.disableArrowKeys !== nextProps.disableArrowKeys) {
-      if (nextProps.disableArrowKeys) {
-        window.removeEventListener('keydown', this._handleKeyDown);
-      } else {
-        window.addEventListener('keydown', this._handleKeyDown);
-      }
-    }
-
     if (nextProps.lazyLoad &&
       (!this.props.lazyLoad || this.props.items !== nextProps.items)) {
       this._lazyLoaded = [];
     }
-
-    if (this.state.currentIndex >= nextProps.items.length) {
-      this.slideToIndex(0);
-    }
   }
 
   componentDidUpdate(prevProps, prevState) {
-    if (prevProps.thumbnailPosition !== this.props.thumbnailPosition ||
-        prevProps.showThumbnails !== this.props.showThumbnails ||
-        prevState.thumbnailsWrapperHeight !== this.state.thumbnailsWrapperHeight ||
-        prevState.thumbnailsWrapperWidth !== this.state.thumbnailsWrapperWidth) {
+    const itemsChanged = prevProps.items.length !== this.props.items.length;
+    if (itemsChanged) {
       this._handleResize();
     }
-
     if (prevState.currentIndex !== this.state.currentIndex) {
       if (this.props.onSlide) {
         this.props.onSlide(this.state.currentIndex);
       }
       if (this.props.showThumbnails) {
-        this._updateThumbnailTranslate(prevState);
+        this._updateThumbnailTranslate(prevState.currentIndex, prevState.currentThumbnailIndex);
       }
     }
 
     if (prevState.currentThumbnailIndex !== this.state.currentThumbnailIndex) {
       if (this.props.showThumbnails) {
-        this._updateThumbnailTranslate(prevState);
+        this._updateThumbnailTranslate(prevState.currentIndex, prevState.currentThumbnailIndex);
       }
     }
 
@@ -216,45 +225,16 @@ export default class ImageGallery extends React.Component {
     }
   }
 
-  componentWillMount() {
-    // Used to update the throttle if slideDuration changes
-    this._unthrottledSlideToIndex = this.slideToIndex.bind(this);
-    this.slideToIndex = throttle(this._unthrottledSlideToIndex,
-                                this.props.slideDuration,
-                                {trailing: false});
-    this._unthrottledSlideThumbnailsToIndex = this.slideThumbnailsToIndex.bind(this);
-    this.slideThumbnailsToIndex = throttle(this._unthrottledSlideThumbnailsToIndex,
-                                          this.props.slideDuration,
-                                          {trailing: false});
-
-    this._handleResize = this._handleResize.bind(this);
-    this._debounceResize = debounce(this._handleResize, 500);
-    this._handleScreenChange = this._handleScreenChange.bind(this);
-    this._handleKeyDown = this._handleKeyDown.bind(this);
-    this._thumbnailDelay = 300;
-  }
-
   componentDidMount() {
-    this._handleResize();
-
     if (this.props.autoPlay) {
       this.play();
     }
-    if (!this.props.disableArrowKeys) {
-      window.addEventListener('keydown', this._handleKeyDown);
-    }
-    window.addEventListener('resize', this._debounceResize);
+    window.addEventListener('keydown', this._handleKeyDown);
     this._onScreenChangeEvent();
   }
 
   componentWillUnmount() {
-    if (!this.props.disableArrowKeys) {
-      window.removeEventListener('keydown', this._handleKeyDown);
-    }
-
-    if (this._debounceResize) {
-      window.removeEventListener('resize', this._debounceResize);
-    }
+    window.removeEventListener('keydown', this._handleKeyDown);
 
     this._offScreenChangeEvent();
 
@@ -263,8 +243,16 @@ export default class ImageGallery extends React.Component {
       this._intervalId = null;
     }
 
-    if (this._resizeTimer) {
-      window.clearTimeout(this._resizeTimer);
+    if(this.resizeObserver && this._imageGallerySlideWrapper) {
+      this.resizeObserver.unobserve(this._imageGallerySlideWrapper);
+    }
+
+    if (this._transitionTimer) {
+      window.clearTimeout(this._transitionTimer);
+    }
+
+    if (this._createResizeObserver) {
+      this._createResizeObserver();
     }
   }
 
@@ -357,43 +345,58 @@ export default class ImageGallery extends React.Component {
     }
   }
 
-  slideToIndex(index, event) {
-    const {currentIndex} = this.state;
+  slideToIndex = (index, event) => {
+    const {currentIndex, isTransitioning} = this.state;
 
-    if (event) {
-      if (this._intervalId) {
-        // user triggered event while ImageGallery is playing, reset interval
-        this.pause(false);
-        this.play(false);
+    if (!isTransitioning) {
+      if (event) {
+        if (this._intervalId) {
+          // user triggered event while ImageGallery is playing, reset interval
+          this.pause(false);
+          this.play(false);
+        }
       }
-    }
 
-    let slideCount = this.props.items.length - 1;
-    let nextIndex = index;
+      let slideCount = this.props.items.length - 1;
+      let nextIndex = index;
 
-    if (index < 0) {
-      nextIndex = slideCount;
-    } else if (index > slideCount) {
-      nextIndex = 0;
-    }
-
-    this.setState({
-      previousIndex: currentIndex,
-      currentIndex: nextIndex,
-      currentThumbnailIndex: nextIndex,
-      offsetPercentage: 0,
-      style: {
-        transition: `all ${this.props.slideDuration}ms ease-out`
+      if (index < 0) {
+        nextIndex = slideCount;
+      } else if (index > slideCount) {
+        nextIndex = 0;
       }
-    });
 
-  }
+      this.setState({
+        previousIndex: currentIndex,
+        currentIndex: nextIndex,
+        currentThumbnailIndex: nextIndex,
+        isFlick: false, // reset isFlick state after slide
+        isTransitioning: currentIndex !== nextIndex,
+        offsetPercentage: 0,
+        style: {
+          transition: `all ${this.props.slideDuration}ms ease-out`
+        }
+      }, this._onSliding);
+    }
+  };
+
+  _onSliding = () => {
+    const { isTransitioning } = this.state;
+    this._transitionTimer = window.setTimeout(() => {
+      if (isTransitioning) {
+        this.setState({isTransitioning: !isTransitioning});
+        if (this.props.onSlide) {
+          this.props.onSlide(this.state.currentIndex);
+        }
+      }
+    }, this.props.slideDuration + 50);
+  };
 
   getCurrentIndex() {
     return this.state.currentIndex;
   }
 
-  _handleScreenChange() {
+  _handleScreenChange = () => {
     /*
       handles screen change events that the browser triggers e.g. esc key
     */
@@ -407,7 +410,7 @@ export default class ImageGallery extends React.Component {
     }
 
     this.setState({isFullscreen: !!fullScreenElement});
-  }
+  };
 
   _onScreenChangeEvent() {
     screenChangeEvents.map(eventName => {
@@ -421,57 +424,83 @@ export default class ImageGallery extends React.Component {
     });
   }
 
-  _toggleFullScreen() {
+  _toggleFullScreen = () => {
     if (this.state.isFullscreen) {
       this.exitFullScreen();
     } else {
       this.fullScreen();
     }
-  }
+  };
 
-  _togglePlay() {
+  _togglePlay = () => {
     if (this._intervalId) {
       this.pause();
     } else {
       this.play();
     }
-  }
+  };
 
-  _handleResize() {
-    // delay initial resize to get the accurate this._imageGallery height/width
-    this._resizeTimer = window.setTimeout(() => {
-      if (this._imageGallery) {
-        this.setState({
-          galleryWidth: this._imageGallery.offsetWidth
-        });
+  _initGalleryResizing = (element) => {
+    /*
+      When image-gallery-slide-wrapper unmounts and mounts when thumbnail bar position is changed
+      ref is called twice, once with null and another with the element.
+      Make sure element is available before calling observe.
+    */
+    if (element) {
+      this._imageGallerySlideWrapper = element;
+      this.resizeObserver = new ResizeObserver(this._createResizeObserver);
+      this.resizeObserver.observe(element);
+    }
+  };
+
+  _createResizeObserver = debounce((entries) => {
+    if (!entries) return;
+    entries.forEach(() => {
+      this._handleResize();
+    });
+  }, 300);
+
+  _handleResize = () => {
+    const { currentIndex } = this.state;
+    if (this._imageGallery) {
+      this.setState({
+        galleryWidth: this._imageGallery.offsetWidth
+      });
+    }
+
+    // adjust thumbnail container when thumbnail width or height is adjusted
+    this._setThumbsTranslate(0);
+
+    if (this._imageGallerySlideWrapper) {
+      this.setState({
+        gallerySlideWrapperHeight: this._imageGallerySlideWrapper.offsetHeight
+      });
+    }
+
+    if (this._thumbnailsWrapper) {
+      if (this._isThumbnailHorizontal()) {
+        this.setState({thumbnailsWrapperHeight: this._thumbnailsWrapper.offsetHeight});
+      } else {
+        this.setState({thumbnailsWrapperWidth: this._thumbnailsWrapper.offsetWidth});
       }
+    }
 
-      // adjust thumbnail container when thumbnail width or height is adjusted
-      this._setThumbsTranslate(0);
-
-      if (this._imageGallerySlideWrapper) {
-        this.setState({
-          gallerySlideWrapperHeight: this._imageGallerySlideWrapper.offsetHeight
-        });
-      }
-
-      if (this._thumbnailsWrapper) {
-        this.setState({
-          thumbnailsWrapperWidth: this._thumbnailsWrapper.offsetWidth,
-          thumbnailsWrapperHeight: this._thumbnailsWrapper.offsetHeight
-        });
-      }
-    }, 500);
-  }
+    // Adjust thumbnail container when thumbnail width or height is adjusted
+    this._setThumbsTranslate(-this._getThumbsTranslate(currentIndex));
+  };
 
   _isThumbnailHorizontal() {
     const { thumbnailPosition } = this.props;
     return thumbnailPosition === 'left' || thumbnailPosition === 'right';
   }
 
-  _handleKeyDown(event) {
+  _handleKeyDown = (event) => {
+    if (this.props.disableArrowKeys) {
+      return;
+    }
     const LEFT_ARROW = 37;
     const RIGHT_ARROW = 39;
+    const ESC_KEY = 27;
     const key = parseInt(event.keyCode || event.which || 0);
 
     switch(key) {
@@ -485,123 +514,141 @@ export default class ImageGallery extends React.Component {
           this._slideRight();
         }
         break;
+      case ESC_KEY:
+        if (this.state.isFullscreen && !this.props.useBrowserFullscreen) {
+          this.exitFullScreen();
+        }
     }
-  }
+  };
 
-  _handleMouseOverThumbnails(index) {
-    if (this.props.slideOnThumbnailHover) {
-      this.setState({hovering: true});
-      if (this._thumbnailTimer) {
-        window.clearTimeout(this._thumbnailTimer);
-        this._thumbnailTimer = null;
-      }
-      this._thumbnailTimer = window.setTimeout(() => {
-        this.slideToIndex(index);
-      }, this._thumbnailDelay);
-    }
-  }
-
-  _handleMouseLeaveThumbnails() {
-    if (this._thumbnailTimer) {
-      window.clearTimeout(this._thumbnailTimer);
-      this._thumbnailTimer = null;
-      if (this.props.autoPlay === true) {
-        this.play(false);
-      }
-    }
-    this.setState({hovering: false});
-  }
-
-  _handleImageError(event) {
+  _handleImageError = (event) => {
     if (this.props.defaultImage &&
         event.target.src.indexOf(this.props.defaultImage) === -1) {
       event.target.src = this.props.defaultImage;
     }
-  }
+  };
 
-  _handleOnSwiped(ev, x, y, isFlick) {
-    this.setState({isFlick: isFlick});
-  }
+  _setScrollDirection(deltaX, deltaY) {
+    const { scrollingUpDown, scrollingLeftRight } = this.state;
+    const x = Math.abs(deltaX);
+    const y = Math.abs(deltaY);
 
-  _shouldSlideOnSwipe() {
-    const shouldSlide = Math.abs(this.state.offsetPercentage) > 30 ||
-      this.state.isFlick;
-
-    if (shouldSlide) {
-      // reset isFlick state after so data is not persisted
-      this.setState({isFlick: false});
+    // If y > x the user is scrolling up and down
+    if (y > x && !scrollingUpDown && !scrollingLeftRight) {
+      this.setState({ scrollingUpDown: true });
+    } else if (!scrollingLeftRight && !scrollingUpDown) {
+      this.setState({ scrollingLeftRight: true });
     }
-    return shouldSlide;
-  }
+  };
 
-  _handleOnSwipedTo(index) {
-    let slideTo = this.state.currentIndex;
-
-    if (this._shouldSlideOnSwipe()) {
-      slideTo += index;
+  _handleOnSwiped = (e, deltaX, deltaY, isFlick) => {
+    const { scrollingUpDown, scrollingLeftRight } = this.state;
+    const { isRTL } = this.props;
+    if (scrollingUpDown) {
+      // user stopped scrollingUpDown
+      this.setState({ scrollingUpDown: false });
     }
 
-    if (index < 0) {
+    if (scrollingLeftRight) {
+      // user stopped scrollingLeftRight
+      this.setState({ scrollingLeftRight: false });
+    }
+
+    if (!scrollingUpDown) { // don't swipe if user is scrolling
+      const side = (deltaX > 0 ? 1 : -1) * (isRTL ? -1 : 1);//if it is RTL the direction is reversed
+      this._handleOnSwipedTo(side, isFlick);
+    }
+  };
+
+  _handleOnSwipedTo(side, isFlick) {
+    const { currentIndex, isTransitioning } = this.state;
+    let slideTo = currentIndex;
+
+    if ((this._sufficientSwipeOffset() || isFlick) && !isTransitioning) {
+      slideTo += side;
+    }
+
+    if (side < 0) {
       if (!this._canSlideLeft()) {
-        slideTo = this.state.currentIndex;
+        slideTo = currentIndex;
       }
     } else {
       if (!this._canSlideRight()) {
-        slideTo = this.state.currentIndex;
+        slideTo = currentIndex;
       }
     }
 
     this._unthrottledSlideToIndex(slideTo);
   }
 
-  _handleSwiping(index, _, delta) {
-    const { swipingTransitionDuration } = this.props;
-    const { galleryWidth } = this.state;
-
-    let offsetPercentage = index * (delta / galleryWidth * 100);
-    if (Math.abs(offsetPercentage) >= 100) {
-      offsetPercentage = index * 100;
-    }
-
-    const swipingTransition = {
-      transition: `transform ${swipingTransitionDuration}ms ease-out`
-    };
-
-    this.setState({
-      offsetPercentage: offsetPercentage,
-      style: swipingTransition
-    });
+  _sufficientSwipeOffset() {
+    return Math.abs(this.state.offsetPercentage) > this.props.swipeThreshold;
   }
+
+  _handleSwiping = (e, deltaX, deltaY, delta) => {
+    const { galleryWidth, isTransitioning, scrollingUpDown } = this.state;
+    const { swipingTransitionDuration } = this.props;
+    this._setScrollDirection(deltaX, deltaY);
+    if (!isTransitioning && !scrollingUpDown) {
+      const side = deltaX < 0 ? 1 : -1;
+
+      let offsetPercentage = (delta / galleryWidth * 100);
+      if (Math.abs(offsetPercentage) >= 100) {
+        offsetPercentage = 100;
+      }
+
+      const swipingTransition = {
+        transition: `transform ${swipingTransitionDuration}ms ease-out`
+      };
+
+      this.setState({
+        offsetPercentage: side * offsetPercentage,
+        style: swipingTransition,
+      });
+    } else {
+      // don't move the slide
+      this.setState({ offsetPercentage: 0 });
+    }
+  };
 
   _canNavigate() {
     return this.props.items.length >= 2;
   }
 
   _canSlideLeft() {
-    return this.props.infinite || this.state.currentIndex > 0;
+    return this.props.infinite ||
+      (this.props.isRTL ? this._canSlideNext() : this._canSlidePrevious());
   }
 
   _canSlideRight() {
     return this.props.infinite ||
-      this.state.currentIndex < this.props.items.length - 1;
+      (this.props.isRTL ? this._canSlidePrevious() : this._canSlideNext());
   }
 
-  _updateThumbnailTranslate(prevState) {
-    const {currentThumbnailIndex, thumbsTranslate} = this.state;
-    if (currentThumbnailIndex === 0) {
+  _canSlidePrevious() {
+    return this.state.currentIndex > 0;
+  }
+
+  _canSlideNext() {
+    return this.state.currentIndex < this.props.items.length - 1;
+  }
+
+  _updateThumbnailTranslate(previousIndex, previousThumbnailIndex) {
+    const {currentThumbnailIndex, currentIndex, thumbsTranslate} = this.state;
+    if (currentThumbnailIndex === 0 || currentIndex === 0) {
       this._setThumbsTranslate(0);
     } else {
       const columns = this._getThumbsColumns();
       const scrollLimit = this._getThumbsTranslateLimit();
-      const indexDifference = (prevState.currentThumbnailIndex < currentThumbnailIndex)
-        ? Math.floor(currentThumbnailIndex / columns) - Math.floor(prevState.currentThumbnailIndex / columns)
-        : Math.ceil(prevState.currentThumbnailIndex / columns) - Math.ceil(currentThumbnailIndex / columns);
+      const indexDifference = (previousThumbnailIndex < currentThumbnailIndex)
+        ? Math.floor(currentThumbnailIndex / columns) - Math.floor(previousThumbnailIndex / columns)
+        : Math.ceil(previousThumbnailIndex / columns) - Math.ceil(currentThumbnailIndex / columns);
       const scroll = this._getThumbsTranslate(indexDifference);
       if (scroll > 0) {
-        if (prevState.currentThumbnailIndex < currentThumbnailIndex) {
+        if (previousThumbnailIndex < currentThumbnailIndex) {
           this._setThumbsTranslate(Math.abs(thumbsTranslate - scroll) >= scrollLimit
             ? -scrollLimit : thumbsTranslate - scroll);
-        } else if (prevState.currentThumbnailIndex > currentThumbnailIndex) {
+        } else if (previousThumbnailIndex > currentThumbnailIndex) {
           this._setThumbsTranslate(Math.abs(thumbsTranslate + scroll) >= scrollLimit
             ? 0 : Math.min(thumbsTranslate + scroll, 0));
         }
@@ -660,7 +707,7 @@ export default class ImageGallery extends React.Component {
             .reduce((total, side) => (total + side), height);
         }
       } else {
-        if (this._thumbnails.scrollWidth <= thumbnailsWrapperWidth) {
+        if (this._thumbnails.scrollWidth <= thumbnailsWrapperWidth || thumbnailsWrapperWidth <= 0) {
           return 0;
         }
         if (this._thumbnails.children && this._thumbnails.children.length) {
@@ -726,6 +773,18 @@ export default class ImageGallery extends React.Component {
     return alignment;
   }
 
+  _isGoingFromFirstToLast() {
+    const {currentIndex, previousIndex} = this.state;
+    const totalSlides = this.props.items.length - 1;
+    return previousIndex === 0 && currentIndex === totalSlides;
+  }
+
+  _isGoingFromLastToFirst() {
+    const {currentIndex, previousIndex} = this.state;
+    const totalSlides = this.props.items.length - 1;
+    return previousIndex === totalSlides && currentIndex === 0;
+  }
+
   _getTranslateXForTwoSlide(index) {
     // For taking care of infinite swipe when there are only two slides
     const {currentIndex, offsetPercentage, previousIndex} = this.state;
@@ -780,34 +839,75 @@ export default class ImageGallery extends React.Component {
     return {};
   }
 
+  _shouldPushSlideOnInfiniteMode(index) {
+    /*
+      Push(show) slide if slide is the current slide, and the next slide
+      OR
+      The slide is going more than 1 slide left, or right, but not going from
+      first to last and not going from last to first
+
+      There is an edge case where if you go to the first or last slide, when they're
+      not left, or right of each other they will try to catch up in the background
+      so unless were going from first to last or vice versa we don't want the first
+      or last slide to show up during our transition
+    */
+    return !this._slideIsTransitioning(index) ||
+      (this._ignoreIsTransitioning() && !this._isFirstOrLastSlide(index));
+  }
+
+  _slideIsTransitioning(index) {
+    /*
+    returns true if the gallery is transitioning and the index is not the
+    previous or currentIndex
+    */
+    const { isTransitioning, previousIndex, currentIndex } = this.state;
+    const indexIsNotPreviousOrNextSlide = !(index === previousIndex || index === currentIndex);
+    return isTransitioning && indexIsNotPreviousOrNextSlide;
+  }
+
+  _isFirstOrLastSlide(index) {
+    const totalSlides = this.props.items.length - 1;
+    const isLastSlide = index === totalSlides;
+    const isFirstSlide = index === 0;
+    return isLastSlide || isFirstSlide;
+  }
+
+  _ignoreIsTransitioning() {
+    /*
+      Ignore isTransitioning because were not going to sibling slides
+      e.g. center to left or center to right
+    */
+    const { previousIndex, currentIndex } = this.state;
+    const totalSlides = this.props.items.length - 1;
+    // we want to show the in between slides transition
+    const slidingMoreThanOneSlideLeftOrRight = Math.abs(previousIndex - currentIndex) > 1;
+    const notGoingFromFirstToLast = !(previousIndex === 0 && currentIndex === totalSlides);
+    const notGoingFromLastToFirst = !(previousIndex === totalSlides && currentIndex === 0);
+
+    return slidingMoreThanOneSlideLeftOrRight &&
+      notGoingFromFirstToLast &&
+      notGoingFromLastToFirst;
+  }
+
   _getSlideStyle(index) {
-    const {currentIndex, offsetPercentage} = this.state;
-    const {infinite, items} = this.props;
+    const { currentIndex, offsetPercentage } = this.state;
+    const { infinite, items, useTranslate3D, isRTL } = this.props;
     const baseTranslateX = -100 * currentIndex;
     const totalSlides = items.length - 1;
 
     // calculates where the other slides belong based on currentIndex
-    let translateX = baseTranslateX + (index * 100) + offsetPercentage;
-
-    // adjust zIndex so that only the current slide and the slide were going
-    // to is at the top layer, this prevents transitions from flying in the
-    // background when swiping before the first slide or beyond the last slide
-    let zIndex = 1;
-    if (index === currentIndex) {
-      zIndex = 3;
-    } else if (index === this.state.previousIndex) {
-      zIndex = 2;
-    } else if (index === 0 || index === totalSlides) {
-      zIndex = 0;
-    }
+    // if it is RTL the base line should be reversed
+    let translateX = (baseTranslateX + (index * 100)) * (isRTL ? -1 : 1) + offsetPercentage;
 
     if (infinite && items.length > 2) {
       if (currentIndex === 0 && index === totalSlides) {
         // make the last slide the slide before the first
-        translateX = -100 + offsetPercentage;
+        // if it is RTL the base line should be reversed
+        translateX = -100 * (isRTL ? -1 : 1) + offsetPercentage;
       } else if (currentIndex === totalSlides && index === 0) {
         // make the first slide the slide after the last
-        translateX = 100 + offsetPercentage;
+        // if it is RTL the base line should be reversed
+        translateX = 100 * (isRTL ? -1 : 1) + offsetPercentage;
       }
     }
 
@@ -816,7 +916,11 @@ export default class ImageGallery extends React.Component {
       translateX = this._getTranslateXForTwoSlide(index);
     }
 
-    const translate = `translate(${translateX}%, 0)`;
+    let translate = `translate(${translateX}%, 0)`;
+
+    if (useTranslate3D) {
+      translate = `translate3d(${translateX}%, 0, 0)`;
+    }
 
     return {
       WebkitTransform: translate,
@@ -824,17 +928,25 @@ export default class ImageGallery extends React.Component {
       msTransform: translate,
       OTransform: translate,
       transform: translate,
-      zIndex: zIndex
     };
   }
 
   _getThumbnailStyle() {
     let translate;
+    const { useTranslate3D, isRTL } = this.props;
+    const { thumbsTranslate } = this.state;
+    const verticalTranslateValue = isRTL ? thumbsTranslate * -1 : thumbsTranslate;
 
     if (this._isThumbnailHorizontal()) {
-      translate = `translate(0, ${this.state.thumbsTranslate}px)`;
+      translate = `translate(0, ${thumbsTranslate}px)`;
+      if (useTranslate3D) {
+        translate = `translate3d(0, ${thumbsTranslate}px, 0)`;
+      }
     } else {
-      translate = `translate(${this.state.thumbsTranslate}px, 0)`;
+      translate = `translate(${verticalTranslateValue}px, 0)`;
+      if (useTranslate3D) {
+        translate = `translate3d(${verticalTranslateValue}px, 0, 0)`;
+      }
     }
     return {
       WebkitTransform: translate,
@@ -845,27 +957,60 @@ export default class ImageGallery extends React.Component {
     };
   }
 
-  _slideLeft(event) {
+  _slideLeft = () => {
+    this.props.isRTL ? this._slideNext() : this._slidePrevious();
+  };
+
+  _slideRight = () => {
+    this.props.isRTL ? this._slidePrevious() : this._slideNext();
+  };
+
+  _slidePrevious = (event) => {
     this.slideToIndex(this.state.currentIndex - 1, event);
-  }
+  };
 
-  _slideRight(event) {
+  _slideNext = (event) => {
     this.slideToIndex(this.state.currentIndex + 1, event);
-  }
+  };
 
-  _renderItem(item) {
+  _renderItem = (item) => {
     const onImageError = this.props.onImageError || this._handleImageError;
 
     return (
       <div className='image-gallery-image'>
-        <img
-            src={item.original}
-            alt={item.originalAlt}
-            srcSet={item.srcSet}
-            sizes={item.sizes}
-            onLoad={this.props.onImageLoad}
-            onError={onImageError.bind(this)}
-        />
+        {
+          item.imageSet ?
+            <picture
+              onLoad={this.props.onImageLoad}
+              onError={onImageError}
+            >
+              {
+                item.imageSet.map((source, index) => (
+                  <source
+                    key={index}
+                    media={source.media}
+                    srcSet={source.srcSet}
+                    type={source.type}
+                  />
+                ))
+              }
+              <img
+                alt={item.originalAlt}
+                src={item.original}
+              />
+            </picture>
+          :
+            <img
+              src={item.original}
+              alt={item.originalAlt}
+              srcSet={item.srcSet}
+              sizes={item.sizes}
+              title={item.originalTitle}
+              onLoad={this.props.onImageLoad}
+              onError={onImageError}
+            />
+        }
+
         {
           item.description &&
             <span className='image-gallery-description'>
@@ -874,27 +1019,27 @@ export default class ImageGallery extends React.Component {
         }
       </div>
     );
-  }
+  };
 
-  _renderThumbInner(item) {
-    let onThumbnailError = this._handleImageError;
-    if (this.props.onThumbnailError) {
-      onThumbnailError = this.props.onThumbnailError;
-    }
+  _renderThumbInner = (item) => {
+    let onThumbnailError = this.props.onThumbnailError || this._handleImageError;
 
     return (
-      <div>
+      <div className='image-gallery-thumbnail-inner'>
         <img
           src={item.thumbnail}
           alt={item.thumbnailAlt}
-          onError={onThumbnailError.bind(this)}
+          title={item.thumbnailTitle}
+          onError={onThumbnailError}
         />
-        <div className='image-gallery-thumbnail-label'>
-          {item.thumbnailLabel}
-        </div>
+        {item.thumbnailLabel &&
+          <div className='image-gallery-thumbnail-label'>
+            {item.thumbnailLabel}
+          </div>
+        }
       </div>
     );
-  }
+  };
 
   _showThumbnailsNav() {
     const {thumbnailsWrapperWidth, thumbnailsWrapperHeight} = this.state;
@@ -965,21 +1110,34 @@ export default class ImageGallery extends React.Component {
   _canSlideThumbnailsRight() {
     return this.props.infinite || Math.abs(this.state.thumbsTranslate) < this._getThumbsTranslateLimit();
   }
+  _onThumbnailClick = (event, index) => {
+    this.slideToIndex(index, event);
+    if (this.props.onThumbnailClick) {
+      this.props.onThumbnailClick(event, index);
+    }
+  };
 
   render() {
     const {
       currentIndex,
       isFullscreen,
       modalFullscreen,
-      isPlaying
+      isPlaying,
+      scrollingLeftRight,
     } = this.state;
+
+    const {
+      infinite,
+      preventDefaultTouchmoveEvent,
+      isRTL,
+    } = this.props;
 
     const thumbnailStyle = this._getThumbnailStyle();
     const thumbnailPosition = this.props.thumbnailPosition;
-    const thumbnailNavClass = this.props.showThumbnailsNav && this._showThumbnailsNav() ? ' navigation' : '';
+    const thumbnailNavClass = this.props.showThumbnailsNav && this._showThumbnailsNav() ? 'navigation' : '';
 
-    const slideLeft = this._slideLeft.bind(this);
-    const slideRight = this._slideRight.bind(this);
+    const slideLeft = this._slideLeft;
+    const slideRight = this._slideRight;
     const slideThumbnailsLeft = this._slideThumbnailsLeft.bind(this);
     const slideThumbnailsRight = this._slideThumbnailsRight.bind(this);
 
@@ -987,7 +1145,7 @@ export default class ImageGallery extends React.Component {
     let thumbnails = [];
     let bullets = [];
 
-    this.props.items.map((item, index) => {
+    this.props.items.forEach((item, index) => {
       const alignment = this._getAlignmentClassName(index);
       const originalClass = item.originalClass ?
         ` ${item.originalClass}` : '';
@@ -995,34 +1153,47 @@ export default class ImageGallery extends React.Component {
         ` ${item.thumbnailClass}` : '';
 
       const renderItem = item.renderItem ||
-        this.props.renderItem || this._renderItem.bind(this);
+        this.props.renderItem || this._renderItem;
 
       const renderThumbInner = item.renderThumbInner ||
-        this.props.renderThumbInner || this._renderThumbInner.bind(this);
+        this.props.renderThumbInner || this._renderThumbInner;
 
       const showItem = !this.props.lazyLoad || alignment || this._lazyLoaded[index];
       if (showItem && this.props.lazyLoad) {
         this._lazyLoaded[index] = true;
       }
 
+      let slideStyle = this._getSlideStyle(index);
+
       const slide = (
         <div
           key={index}
           className={'image-gallery-slide' + alignment + originalClass}
-          style={Object.assign(this._getSlideStyle(index), this.state.style)}
+          style={Object.assign(slideStyle, this.state.style)}
           onClick={this.props.onClick}
+          onTouchMove={this.props.onTouchMove}
+          onTouchEnd={this.props.onTouchEnd}
+          onTouchStart={this.props.onTouchStart}
+          onMouseOver={this.props.onMouseOver}
+          onMouseLeave={this.props.onMouseLeave}
+          role={this.props.onClick && 'button'}
         >
           {showItem ? renderItem(item) : <div style={{ height: '100%' }}></div>}
         </div>
       );
 
-      slides.push(slide);
+      if (infinite) {
+        // don't add some slides while transitioning to avoid background transitions
+        if (this._shouldPushSlideOnInfiniteMode(index)) {
+          slides.push(slide);
+        }
+      } else {
+        slides.push(slide);
+      }
 
       if (this.props.showThumbnails) {
         thumbnails.push(
           <a
-            onMouseOver={this._handleMouseOverThumbnails.bind(this, index)}
-            onMouseLeave={this._handleMouseLeaveThumbnails.bind(this, index)}
             key={index}
             role='button'
             aria-pressed={currentIndex === index ? 'true' : 'false'}
@@ -1032,7 +1203,7 @@ export default class ImageGallery extends React.Component {
               (currentIndex === index ? ' active' : '') +
               thumbnailClass
             }
-            onClick={event => this.slideToIndex.call(this, index, event)}
+            onClick={event => this._onThumbnailClick(event, index)}
           >
             {renderThumbInner(item)}
           </a>
@@ -1040,15 +1211,22 @@ export default class ImageGallery extends React.Component {
       }
 
       if (this.props.showBullets) {
+        const bulletOnClick = event => {
+          if(item.bulletOnClick){
+            item.bulletOnClick({item, itemIndex: index, currentIndex});
+          }
+          return this.slideToIndex.call(this, index, event);
+        };
         bullets.push(
           <button
             key={index}
             type='button'
-            className={
-              'image-gallery-bullet ' + (
-                currentIndex === index ? 'active' : '')}
-
-            onClick={event => this.slideToIndex.call(this, index, event)}
+            className={[
+              'image-gallery-bullet',
+              currentIndex === index ? 'active' : '',
+              item.bulletClass || ''
+            ].join(' ')}
+            onClick={bulletOnClick}
             aria-pressed={currentIndex === index ? 'true' : 'false'}
             aria-label={`Go to Slide ${index + 1}`}
           >
@@ -1059,20 +1237,20 @@ export default class ImageGallery extends React.Component {
 
     const slideWrapper = (
       <div
-        ref={i => this._imageGallerySlideWrapper = i}
-        className={`image-gallery-slide-wrapper ${thumbnailPosition}`}
+        ref={this._initGalleryResizing}
+        className={`image-gallery-slide-wrapper ${thumbnailPosition} ${isRTL ? 'image-gallery-rtl' : ''}`}
       >
 
         {this.props.renderCustomControls && this.props.renderCustomControls()}
 
         {
           this.props.showFullscreenButton &&
-            this.props.renderFullscreenButton(this._toggleFullScreen.bind(this), isFullscreen)
+            this.props.renderFullscreenButton(this._toggleFullScreen, isFullscreen)
         }
 
         {
           this.props.showPlayButton &&
-            this.props.renderPlayPauseButton(this._togglePlay.bind(this), isPlaying)
+            this.props.renderPlayPauseButton(this._togglePlay, isPlaying)
         }
 
         {
@@ -1084,27 +1262,21 @@ export default class ImageGallery extends React.Component {
                   {this.props.renderRightNav(slideRight, !this._canSlideRight())}
                 </span>,
 
-                this.props.disableSwipe ?
-                  <div className='image-gallery-slides' key='slides'>
+                <Swipeable
+                  className='image-gallery-swipe'
+                  disabled={this.props.disableSwipe}
+                  key='swipeable'
+                  delta={0}
+                  flickThreshold={this.props.flickThreshold}
+                  onSwiping={this._handleSwiping}
+                  onSwiped={this._handleOnSwiped}
+                  stopPropagation={this.props.stopPropagation}
+                  preventDefaultTouchmoveEvent={preventDefaultTouchmoveEvent || scrollingLeftRight}
+                >
+                  <div className='image-gallery-slides'>
                     {slides}
                   </div>
-                :
-                  <Swipeable
-                    className='image-gallery-swipe'
-                    key='swipeable'
-                    delta={1}
-                    onSwipingLeft={this._handleSwiping.bind(this, -1)}
-                    onSwipingRight={this._handleSwiping.bind(this, 1)}
-                    onSwiped={this._handleOnSwiped.bind(this)}
-                    onSwipedLeft={this._handleOnSwipedTo.bind(this, 1)}
-                    onSwipedRight={this._handleOnSwipedTo.bind(this, -1)}
-                    onSwipedDown={this._handleOnSwipedTo.bind(this, 0)}
-                    onSwipedUp={this._handleOnSwipedTo.bind(this, 0)}
-                  >
-                    <div className='image-gallery-slides'>
-                      {slides}
-                    </div>
-                </Swipeable>
+              </Swipeable>
             ]
           :
             <div className='image-gallery-slides'>
@@ -1114,13 +1286,13 @@ export default class ImageGallery extends React.Component {
         {
           this.props.showBullets &&
             <div className='image-gallery-bullets'>
-              <ul
+              <div
                 className='image-gallery-bullets-container'
                 role='navigation'
                 aria-label='Bullet Navigation'
               >
                 {bullets}
-              </ul>
+              </div>
             </div>
         }
         {
@@ -1140,11 +1312,16 @@ export default class ImageGallery extends React.Component {
       </div>
     );
 
+    const classNames = [
+      'image-gallery',
+      this.props.additionalClass,
+      modalFullscreen ? 'fullscreen-modal' : '',
+    ].filter(name => typeof name === 'string').join(' ');
+
     return (
-      <section
+      <div
         ref={i => this._imageGallery = i}
-        className={
-          `image-gallery${modalFullscreen ? ' fullscreen-modal' : ''}`}
+        className={classNames}
         aria-live='polite'
       >
 
@@ -1159,7 +1336,7 @@ export default class ImageGallery extends React.Component {
           {
             this.props.showThumbnails &&
               <div
-                className={`image-gallery-thumbnails-wrapper${thumbnailNavClass} ${thumbnailPosition}`}
+                className={`image-gallery-thumbnails-wrapper ${thumbnailNavClass} ${thumbnailPosition} ${!this._isThumbnailHorizontal() && isRTL ? 'thumbnails-wrapper-rtl' : ''}`}
                 style={this._getThumbnailBarHeight()}
               >
                 {
@@ -1224,7 +1401,7 @@ export default class ImageGallery extends React.Component {
 
         </div>
 
-      </section>
+      </div>
     );
   }
 
