@@ -169,15 +169,19 @@ var ImageGallery = function (_React$Component) {
       }
 
       if (_this._thumbnailsWrapper) {
-        if (_this._isThumbnailHorizontal()) {
-          _this.setState({ thumbnailsWrapperHeight: _this._thumbnailsWrapper.offsetHeight });
-        } else {
-          _this.setState({ thumbnailsWrapperWidth: _this._thumbnailsWrapper.offsetWidth });
-        }
+        _this._updateThumbnailWrapperSize();
       }
 
       // Adjust thumbnail container when thumbnail width or height is adjusted
       _this._setThumbsTranslate(-_this._getThumbsTranslate(currentIndex));
+    };
+
+    _this._updateThumbnailWrapperSize = function () {
+      if (_this._isThumbnailHorizontal()) {
+        _this.setState({ thumbnailsWrapperHeight: _this._thumbnailsWrapper.offsetHeight });
+      } else {
+        _this.setState({ thumbnailsWrapperWidth: _this._thumbnailsWrapper.offsetWidth });
+      }
     };
 
     _this._handleKeyDown = function (event) {
@@ -350,6 +354,12 @@ var ImageGallery = function (_React$Component) {
       }
     };
 
+    _this._onThumbnailMounted = function (element) {
+      _this.setState({
+        isThumbnailNavMounted: !!element
+      });
+    };
+
     _this.state = {
       currentIndex: props.startIndex,
       currentThumbnailIndex: props.startIndex,
@@ -359,7 +369,8 @@ var ImageGallery = function (_React$Component) {
       thumbnailsWrapperWidth: 0,
       thumbnailsWrapperHeight: 0,
       isFullscreen: false,
-      isPlaying: false
+      isPlaying: false,
+      isThumbnailNavMounted: false
     };
 
     // Used to update the throttle if slideDuration changes
@@ -403,6 +414,12 @@ var ImageGallery = function (_React$Component) {
 
       if (prevProps.slideDuration !== this.props.slideDuration) {
         this.slideToIndex = (0, _lodash2.default)(this._unthrottledSlideToIndex, this.props.slideDuration, { trailing: false });
+      }
+
+      var thumbnailNavSwitched = this.state.isThumbnailNavMounted !== prevState.isThumbnailNavMounted;
+
+      if (this._thumbnailsWrapper && thumbnailNavSwitched) {
+        this._updateThumbnailWrapperSize();
       }
     }
   }, {
@@ -1298,7 +1315,7 @@ var ImageGallery = function (_React$Component) {
             },
             this.props.showThumbnailsNav && this._showThumbnailsNav() && _react2.default.createElement(
               'span',
-              null,
+              { ref: this._onThumbnailMounted },
               this.props.renderThumbnailsLeftNav(slideThumbnailsLeft, !this._canSlideThumbnailsLeft(), this._isThumbnailHorizontal()),
               this.props.renderThumbnailsRightNav(slideThumbnailsRight, !this._canSlideThumbnailsRight(), this._isThumbnailHorizontal())
             ),
