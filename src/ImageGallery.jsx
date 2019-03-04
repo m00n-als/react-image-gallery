@@ -493,14 +493,13 @@ export default class ImageGallery extends React.Component {
   };
 
   _updateThumbnailWrapperSize = () => {
-    if (this._isThumbnailHorizontal()) {
-      this.setState({thumbnailsWrapperHeight: this._thumbnailsWrapper.offsetHeight});
-    } else {
-      this.setState({thumbnailsWrapperWidth: this._thumbnailsWrapper.offsetWidth});
-    }
+    this.setState({
+      thumbnailsWrapperHeight: this._thumbnailsWrapper.offsetHeight,
+      thumbnailsWrapperWidth: this._thumbnailsWrapper.offsetWidth,
+    });
   }
 
-  _isThumbnailHorizontal() {
+  _isThumbnailVertical() {
     const { thumbnailPosition } = this.props;
     return thumbnailPosition === 'left' || thumbnailPosition === 'right';
   }
@@ -672,7 +671,7 @@ export default class ImageGallery extends React.Component {
     if (this._thumbnails && this._thumbnails.children && this._thumbnails.children.length) {
       const { width, height } = this._thumbnails.children[0].getBoundingClientRect();
 
-      if (this._isThumbnailHorizontal()) {
+      if (this._isThumbnailVertical()) {
         return Math.floor(thumbnailsWrapperWidth / width) || 1;
       } else {
         return Math.floor(thumbnailsWrapperHeight / height) || 1;
@@ -685,7 +684,7 @@ export default class ImageGallery extends React.Component {
   _getThumbsTranslateLimit() {
     const {thumbnailsWrapperWidth,thumbnailsWrapperHeight} = this.state;
 
-    if (this._isThumbnailHorizontal()) {
+    if (this._isThumbnailVertical()) {
       return this._thumbnails.scrollHeight - thumbnailsWrapperHeight;
     }
 
@@ -706,7 +705,7 @@ export default class ImageGallery extends React.Component {
 
     if (this._thumbnails) {
       // total scroll required to see the last thumbnail
-      if (this._isThumbnailHorizontal()) {
+      if (this._isThumbnailVertical()) {
         if (this._thumbnails.scrollHeight <= thumbnailsWrapperHeight) {
           return 0;
         }
@@ -840,7 +839,7 @@ export default class ImageGallery extends React.Component {
   }
 
   _getThumbnailBarHeight() {
-    if (this._isThumbnailHorizontal()) {
+    if (this._isThumbnailVertical()) {
       return {
         height: this.props.showThumbnailsNav && this._showThumbnailsNav()
           ? this.state.gallerySlideWrapperHeight - 50
@@ -948,7 +947,7 @@ export default class ImageGallery extends React.Component {
     const { thumbsTranslate } = this.state;
     const verticalTranslateValue = isRTL ? thumbsTranslate * -1 : thumbsTranslate;
 
-    if (this._isThumbnailHorizontal()) {
+    if (this._isThumbnailVertical()) {
       translate = `translate(0, ${thumbsTranslate}px)`;
       if (useTranslate3D) {
         translate = `translate3d(0, ${thumbsTranslate}px, 0)`;
@@ -1057,7 +1056,7 @@ export default class ImageGallery extends React.Component {
 
     if (this._thumbnails) {
 
-      if (this._isThumbnailHorizontal()) {
+      if (this._isThumbnailVertical()) {
         return !!(thumbnailsWrapperHeight && this._thumbnails.scrollHeight > thumbnailsWrapperHeight);
       }
 
@@ -1088,7 +1087,7 @@ export default class ImageGallery extends React.Component {
     } = this.state;
     const scrollLimit = this._getThumbsTranslateLimit();
 
-    if (this._isThumbnailHorizontal()) {
+    if (this._isThumbnailVertical()) {
       this._setThumbsTranslate(thumbsTranslate >= 0 ? -scrollLimit
         : Math.min(thumbsTranslate + thumbnailsWrapperHeight, 0));
     } else {
@@ -1105,7 +1104,7 @@ export default class ImageGallery extends React.Component {
       } = this.state;
     const scrollLimit = this._getThumbsTranslateLimit();
 
-    if (this._isThumbnailHorizontal()) {
+    if (this._isThumbnailVertical()) {
       this._setThumbsTranslate(thumbsTranslate <= -scrollLimit ? 0
         : Math.max(thumbsTranslate - thumbnailsWrapperHeight, -scrollLimit));
     } else {
@@ -1353,17 +1352,17 @@ export default class ImageGallery extends React.Component {
           {
             this.props.showThumbnails &&
               <div
-                className={`image-gallery-thumbnails-wrapper ${thumbnailNavClass} ${thumbnailPosition} ${!this._isThumbnailHorizontal() && isRTL ? 'thumbnails-wrapper-rtl' : ''}`}
+                className={`image-gallery-thumbnails-wrapper ${thumbnailNavClass} ${thumbnailPosition} ${!this._isThumbnailVertical() && isRTL ? 'thumbnails-wrapper-rtl' : ''}`}
                 style={this._getThumbnailBarHeight()}
               >
                 {
                   this.props.showThumbnailsNav && this._showThumbnailsNav() &&
                     <span ref={this._onThumbnailMounted} >
                       {this.props.renderThumbnailsLeftNav(
-                        slideThumbnailsLeft, !this._canSlideThumbnailsLeft(), this._isThumbnailHorizontal()
+                        slideThumbnailsLeft, !this._canSlideThumbnailsLeft(), this._isThumbnailVertical()
                       )}
                       {this.props.renderThumbnailsRightNav(
-                        slideThumbnailsRight, !this._canSlideThumbnailsRight(), this._isThumbnailHorizontal()
+                        slideThumbnailsRight, !this._canSlideThumbnailsRight(), this._isThumbnailVertical()
                       )}
                     </span>
                 }
