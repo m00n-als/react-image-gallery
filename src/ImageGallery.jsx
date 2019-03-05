@@ -230,10 +230,6 @@ export default class ImageGallery extends React.Component {
     if (this._thumbnailsWrapper && thumbnailNavSwitched) {
       this._updateThumbnailWrapperSize();
     }
-
-    if (prevState.isFullscreen !== this.state.isFullscreen) {
-      this._updateThumbnailTranslate(prevState.currentIndex, prevState.currentThumbnailIndex);
-    }
   }
 
   componentDidMount() {
