@@ -230,6 +230,10 @@ export default class ImageGallery extends React.Component {
     if (this._thumbnailsWrapper && thumbnailNavSwitched) {
       this._updateThumbnailWrapperSize();
     }
+
+    if (prevState.isFullscreen !== this.state.isFullscreen) {
+      this._updateThumbnailTranslate(prevState.currentIndex, prevState.currentThumbnailIndex);
+    }
   }
 
   componentDidMount() {
@@ -325,7 +329,6 @@ export default class ImageGallery extends React.Component {
     }
 
     this.setState({isFullscreen: true});
-
   }
 
   exitFullScreen() {
@@ -348,7 +351,6 @@ export default class ImageGallery extends React.Component {
       }
 
       this.setState({isFullscreen: false});
-
     }
   }
 
@@ -468,15 +470,11 @@ export default class ImageGallery extends React.Component {
   }, 300);
 
   _handleResize = () => {
-    const { currentIndex } = this.state;
     if (this._imageGallery) {
       this.setState({
         galleryWidth: this._imageGallery.offsetWidth
       });
     }
-
-    // adjust thumbnail container when thumbnail width or height is adjusted
-    this._setThumbsTranslate(0);
 
     if (this._imageGallerySlideWrapper) {
       this.setState({
@@ -487,9 +485,6 @@ export default class ImageGallery extends React.Component {
     if (this._thumbnailsWrapper) {
       this._updateThumbnailWrapperSize();
     }
-
-    // Adjust thumbnail container when thumbnail width or height is adjusted
-    this._setThumbsTranslate(-this._getThumbsTranslate(currentIndex));
   };
 
   _updateThumbnailWrapperSize = () => {
@@ -650,10 +645,13 @@ export default class ImageGallery extends React.Component {
     } else {
       const columns = this._getThumbsColumns();
       const scrollLimit = this._getThumbsTranslateLimit();
+
       const indexDifference = (previousThumbnailIndex < currentThumbnailIndex)
         ? Math.floor(currentThumbnailIndex / columns) - Math.floor(previousThumbnailIndex / columns)
         : Math.ceil(previousThumbnailIndex / columns) - Math.ceil(currentThumbnailIndex / columns);
+
       const scroll = this._getThumbsTranslate(indexDifference);
+
       if (scroll > 0) {
         if (previousThumbnailIndex < currentThumbnailIndex) {
           this._setThumbsTranslate(Math.abs(thumbsTranslate - scroll) >= scrollLimit
@@ -1086,7 +1084,7 @@ export default class ImageGallery extends React.Component {
       thumbsTranslate,
     } = this.state;
     const scrollLimit = this._getThumbsTranslateLimit();
-
+    
     if (this._isThumbnailVertical()) {
       this._setThumbsTranslate(thumbsTranslate >= 0 ? -scrollLimit
         : Math.min(thumbsTranslate + thumbnailsWrapperHeight, 0));
